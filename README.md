@@ -1,9 +1,3 @@
-# Cluster_Analysis_Project
----
-title: "Clustering Analysis Project"
-output: html_document
----
-
 # Clustering Analysis Project
 
 ## Team Members

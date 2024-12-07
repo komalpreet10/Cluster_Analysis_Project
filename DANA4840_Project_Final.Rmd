@@ -1,0 +1,2142 @@
+---
+title: "DANA4840_Project"
+author: ""
+date: "2024-11-26"
+output: html_document
+---
+
+---
+title: "Red_Wine"
+output: html_document
+date: "2024-09-25"
+---
+
+
+# Red Wine Quality Dataset
+
+## Introduction
+
+The red wine quality dataset can be found (https://www.kaggle.com/uciml/red-wine-quality-cortez-et-al-2009). This data set is related to red variants of the Portuguese "Vinho Verde" wine.It includes 11 physicochemical properties of 1599 observations and one target variable- Quality, stating a score for each observation.
+
+## Dataset Description
+
+All the 12 variable of the data set are numerical.
+
+- **fixed acidity** : non-volatile acids in the wine, primarily tartaric acid 
+- **volatile acidity**: Amount of acetic acid in the wine 
+- **citric acid**: Amount of citric acid in the wine
+- **residual sugar** :Sugar remaining after fermentation 
+- **chlorides**:Salt content in the wine
+- **free sulfur dioxide** : Amount of sulfur dioxide that is available to act as a preservative and antioxidant in the wine
+- **total sulfur dioxide** :Overall sulfur dioxide content in the wine 
+- **density** :Mass per unit volume of the wine 
+- **pH** : Acidity of the wine 
+- **sulphates** : Concentration of sulfates in the wine 
+- **alcohol** : Ethanol content in the wine 
+- **Quality** : Rating of the wine's overall quality (0-10) 
+
+## Objective
+
+The primary purpose of conducting clustering analyses using k-means and Partitioning Around Medoids (PAM) on the red wine dataset is to categorize wines into groups with similar physicochemical properties. 
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(skimr)
+library(knitr)
+library(stringr)
+library(viridis)
+library(factoextra)
+library(hrbrthemes)
+library(tibble)
+library(forcats)
+library(mclust)
+library(fpc)
+library(LPCM)
+library(cluster)
+library(NbClust)
+library(funModeling)
+library(clValid)
+library(dbscan)
+library(plotly)
+```
+
+
+```{r}
+Rwine<-read.csv("winequality-red.csv",sep = ";")
+View(Rwine)
+```
+
+```{r}
+str(Rwine)
+head(Rwine)
+colnames(Rwine)
+```
+
+##### Removing the Quality column, since it is used to verify the clusters.
+
+```{r}
+new_data <- Rwine[, -ncol(Rwine)]
+
+# View the new data set
+head(new_data)
+```
+```{r}
+nrow(Rwine)
+```
+
+
+```{r}
+library(hopkins)
+set.seed(123)
+```
+
+### Hopkins Statistic 
+
+
+```{r}
+hopkins_value<-hopkins(new_data,m=(nrow(new_data)-1))
+hopkins_value
+```
+##### Since Hopkins value is greater than 0.7 we can concluse that are data set is clusterable.
+
+#Checking for missing values
+
+```{r}
+missing_values <- sapply(new_data, function(x) sum(is.na(x)))
+
+print(missing_values)
+```
+
+There are no missing values in the data set.
+
+</div>
+
+# Exploratory Data Analysis
+
+<div style="text-align: justify">
+
+
+**Density Plot:**
+
+```{r}
+options(scipen = 999)
+
+density_wine <- ggplot(Rwine, aes(x = quality)) + geom_density()
+
+density_wine + 
+  geom_vline(xintercept = 5, col = "red", size = 2) + 
+  geom_vline(xintercept = 6, col = "blue", size = 2)
+```
+
+<p>A simple density plot on the dataset shows that our dataset has 2 bumps (considering threshold density as 0.5 for significance), suggesting that there are more number of data for quality 5 and 6.</p>
+
+
+**Correlation Plot:**
+
+```{r}
+corrplot(cor(Rwine))
+```
+
+Alcohol vs. Quality: Shows a strong positive correlation, indicating that higher alcohol content tends to be associated with better wine quality.
+
+Density vs. Alcohol: Displays a negative correlation, suggesting wines with higher alcohol tend to have lower density.
+
+Citric Acid vs. Fixed Acidity: Strong positive correlation
+
+pH vs. Fixed Acidity: Negative correlation, 
+
+Free Sulfur Dioxide vs. Total Sulfur Dioxide: High positive correlation, as expected since these variables are closely related.
+
+
+**Histogram Analysis:**
+
+```{r}
+plot_num(Rwine)
+```
+
+From the histograms, we observe that:
+
+1. The pH value seems to dispaly a normal distribution with major samples exhibiting values between 3.0 and 3.5.
+
+2. The free sulfur dioxide seems to be between the 1-72 count with peaking around 10 mark.
+
+3. The total sulfur dioxide seems to a have a spread between 0 and 175 and exhibiting peak around 50.
+
+4. The alcohol content seems to vary from 8 to 14 with major peaks around 10 with a lower count between 13 and 14.
+
+5. The fixed acidity, volatile acidity and density can almost be considered to be normally distributed.
+
+6. Majorly, the variables distributions are right-tailed.
+
+**Boxplot Analysis:**
+
+```{r}
+box_colors <- c("lightblue", "lightgreen", "lightcoral", "lightpink", "lightyellow", "lightgray")
+
+
+boxplot(scale(Rwine),
+        xlab = "Value", 
+        ylab = "Parameters", 
+        main = "Boxplot Presentation of Different Parameters",
+        col = box_colors,         
+        border = "black",           
+        notch = TRUE,             
+        outline = TRUE,            
+        )          
+
+```
+
+<p>We have scaled all the values for boxplot analysis to bring them at similar scales and avoid overrepresntation of any independant parameter. A simple analysis of the boxplot shows that there are major outliers in residual sugar, chlorides and sulphates and minor outliers in citric acid.</p>
+
+
+## Mean value for each Chemical character
+
+```{r}
+
+# Group by quality and calculate the mean for each variable
+grouped_by_quality <- Rwine %>%
+  group_by(quality) %>%
+  summarise(across(everything(), mean))
+
+print(grouped_by_quality)
+
+```
+
+The mean values are almost similar for quality level 7,8 for all the variable except alcohol. 
+
+A clear difference is shown in citric acid levels in lower quality wines and higher quality wines.
+
+A clear difference is also seen in the alochol level of lower quality wines and higher quality wines. However the quality 4 has a higher alcohol level than quality 5. Since the values are almost similar with clear distinctivity, this might lead to not showing clear clusters when K means algorthim is applied. 
+
+
+
+#Scaling the data
+
+```{r}
+df.scaled<-scale(new_data)
+```
+
+# Visualizing Distance Matrix 
+
+```{r}
+library(stats)
+library(factoextra)
+
+dist.eucl<-dist(df.scaled,method="euclidean")
+fviz_dist(dist.eucl)
+```
+
+#PCA - 
+
+Visualizing the data to assess whether the contain any meaningful clusters.We perform PCA to reduce the dimensionality to plot. 
+```{r}
+library("factoextra")
+
+fviz_pca_ind(prcomp(df.scaled),title="PCA-Wine",habillage = Rwine$quality,palette = "jco",geom="point",ggtheme=theme_classic(),legend="bottom")
+```
+
+This plot visualizes the results of a Principal Component Analysis (PCA) applied to a dataset.The colors and shapes represent different levels of wine quality.
+In this plot, it seems difficult to identify clear clusters, suggesting the wine samples may not separate distinctly based on these components.
+
+
+# Determing the optimal number of clusters
+
+# 1) Elbow method
+
+```{r}
+wss <- numeric(10)
+for (i in 1:10) {
+  wss[i] <- sum(kmeans(df.scaled, centers = i)$tot.withinss)
+}
+
+plot(1:10, wss, type = "b", pch = 16, col = "blue", lwd = 2, 
+     xlab = "Number of clusters k", ylab = "Total Within Sum of Squares")
+
+grid()
+
+for (i in 1:10) {
+  text(i, wss[i], labels = round(wss[i], 1), pos = 3, cex = 0.8, col = "black")
+  points(i, wss[i], col = rgb(0, 0, 1, alpha = i/10), pch = 16, cex = 2)
+}
+```
+
+The Elbow appears to occur around 3 or 4 clusters, as the rate of decrease in WSS slows down after that point. 
+
+# 2) Silhoutte method
+
+```{r}
+fviz_nbclust(df.scaled, kmeans, method = "silhouette") +
+  labs(subtitle = "Silhouette method") +
+  theme_minimal() + 
+    geom_line(size = 3, color = "blue") +  
+  geom_point(size = 3, color = "blue")     
+
+```
+
+The silhouette method suggest 2 clusters as optimal.
+
+# 3) Gap Statistic
+
+```{r}
+set.seed(123)
+fviz_nbclust(df.scaled, kmeans, nstart = 25, method = "gap_stat", nboot = 50) +
+  labs(subtitle = "Gap Statistic method") +
+  theme_minimal() +                # Optional: Cleaner theme
+  geom_line(size = 1.5, color = "blue")  # Thicker lines, color set to blue
+
+```
+
+The Gap Statistic method suggest 3 clusters as optimal. 
+
+# 4) Nbclust function
+
+```{r}
+library("NbClust")
+library("factoextra")
+
+nb<-NbClust(df.scaled,distance="euclidean",min.nc=2,max.nc=6,method="kmeans")
+```
+The NbClust function proposes 2 as the best number of clusters. 
+
+```{r}
+table(Rwine$quality)
+```
+There are 6 quality values in the target variable, suggesting there should be 6 clusters.
+
+Hence we performed K means algorithm for cluster number 2,3 and 6 as suggested by the above plots and analysis, to identify the ideal number of clusters. 
+
+#### Explaination for the number of clusters
+
+
+# K Means clustering
+
+### 3 Clusters
+```{r}
+set.seed(123)
+library("factoextra")
+
+km.res3<-eclust(df.scaled,"kmeans",k=3,nstart=25,graph = FALSE)
+
+km.res3
+```
+```{r}
+library("factoextra")
+
+fviz_cluster(km.res3,geom="point",ellipse.type = "norm",
+             palette="jco",ggtheme = theme_minimal())
+```
+
+There is some overlap between the clusters, especially between Cluster 2 (yellow) and Cluster 3 (gray). This suggests that these clusters share similar characteristics in the reduced dimensional space.
+Cluster 1 (blue) appears more distinct, indicating better separation from the other clusters.
+Overlapping points between clusters imply that these clusters are not perfectly distinct in this reduced dimensional space. There may be similarities in the original dataset among these clusters.
+
+### 2 Clusters
+```{r}
+library("factoextra")
+
+km.res2<-eclust(df.scaled,"kmeans",k=2,nstart=25,graph = FALSE)
+
+km.res2
+```
+```{r}
+library("factoextra")
+
+fviz_cluster(km.res2,geom="point",ellipse.type = "norm",
+             palette="jco",ggtheme = theme_minimal())
+```
+
+The ellipses for the two clusters overlap significantly, indicating that there is no clear separation between the two clusters in this 2D representation.This may be because, the clusters are not well-separated in the reduced dimensional space, the data have overlapping features.
+
+### 6 clusters
+
+```{r}
+library("factoextra")
+
+km.res6<-eclust(df.scaled,"kmeans",k=6,nstart=25,graph = FALSE)
+
+km.res6
+```
+
+
+```{r}
+library("factoextra")
+
+fviz_cluster(km.res6,geom="point",ellipse.type = "norm",
+             palette="jco",ggtheme = theme_minimal())
+```
+
+# Cluster validation 
+
+### 1) 2 Clusters
+
+#### Silhoutte Coefficient 
+
+```{r}
+library(factoextra)
+library(cluster)
+
+# Visualize the silhouette plot
+fviz_silhouette(km.res2, palette = "jco", ggtheme = theme_classic())
+```
+
+The silhouette plot above shows negative values suggesting there are points that are misclassified in cluster 1, as they are closer to cluster 2. 
+
+```{r}
+silinfo2<-km.res2$silinfo
+
+#Average silhouette width of each cluster (2 clusters)
+silinfo2$clus.avg.widths
+```
+```{r}
+#Finding the points with negative width
+
+sil2<-km.res2$silinfo$widths[,1:3]
+
+neg.sil<-which(sil2[,'sil_width']<0)
+sil2[neg.sil, ,drop=FALSE]
+```
+
+The table above give a summary of the negative silhouette points. There are 109 data points that misclassified. 
+
+#### Dunn Index
+
+```{r}
+km_stats2<-cluster.stats(dist(df.scaled),km.res2$cluster)
+
+km_stats2$dunn
+```
+#### Connectivity Score
+
+```{r}
+connectivity_score <- connectivity(distance = dist(df.scaled), clusters = km.res2$cluster)
+
+# Print the connectivity score
+print(connectivity_score)
+```
+
+```{r}
+library(factoextra)
+library(cluster)
+
+# Visualize the silhouette plot
+fviz_silhouette(km.res3, palette = "jco", ggtheme = theme_classic())
+```
+
+A higher silhouette width indicates better-defined clusters. Although the difference is not large, the silhouette width suggests that 2 clusters might be slightly better in terms of cluster quality.
+
+```{r}
+silinfo3<-km.res3$silinfo
+
+#Average silhouette width of each cluster (3 clusters)
+silinfo3$clus.avg.widths
+```
+#### Dunn Index
+
+```{r}
+km_stats3<-cluster.stats(dist(df.scaled),km.res3$cluster)
+
+km_stats3$dunn
+```
+
+```{r}
+library(factoextra)
+library(cluster)
+
+fviz_silhouette(km.res6, palette = "jco", ggtheme = theme_classic())
+```
+
+```{r}
+km_stats6<-cluster.stats(dist(df.scaled),km.res6$cluster)
+
+km_stats6$dunn
+```
+
+```{r}
+connectivity_score6 <- connectivity(distance = dist(df.scaled), clusters = km.res6$cluster)
+
+# Print the connectivity score
+print(connectivity_score6)
+```
+# Internal Validation Summary 
+
+```{r}
+library(clValid)
+
+clmethodsK<-c("kmeans")
+
+internK<-clValid(df.scaled,nClust = 2:6,clMethods = clmethodsK,validation = "internal",metric = "euclidean",maxitems = 1599)
+
+summary(internK)
+```
+```{r}
+op<-par(no.readonly=TRUE)
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(internK, legend=FALSE)
+plot(nClusters(internK), measures(internK, "Dunn")[,,1], type="n", axes=F, xlab="", ylab="")
+legend("center", clusterMethods(internK), col=1:9, lty=1:9, pch=paste(1:9))
+```
+
+The Internal Validation summary says that connectivity is lowest for 3 clusters, Dunn Index is highest for 6 clusters. 
+
+# Stability
+
+```{r}
+library(clValid)
+stab<-clValid(df.scaled,nClust = 2:6,clMethods = clmethodsK,validation = "stability",maxitems = 1599)
+summary(stab)
+```
+
+```{r}
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(stab, measures=c("APN","AD","ADM","FOM"),legend=FALSE)
+plot(nClusters(stab), measures(stab, "APN")[,,1], type="n", axes=F, xlab="", ylab="")
+legend("center", clusterMethods(stab), col=1:9, lty=1:9, pch=paste(1:9))
+```
+
+The Stability scores above says APN and ADM suggest 2 clusters as best and AD and FOM suggest 6 clusters. 
+
+
+# External Validation
+
+## 1) Ajusted Rand Index (ARI)
+
+```{r}
+true_labels <- Rwine$quality
+```
+
+```{r}
+library("fpc")
+
+quality <- as.numeric(Rwine$quality)
+clust_stats3 <- cluster.stats(d = dist(df.scaled), 
+                             quality, km.res3$cluster)
+clust_stats3$corrected.rand
+```
+```{r}
+library("fpc")
+
+clust_stats2 <- cluster.stats(d = dist(df.scaled), 
+                             quality, km.res2$cluster)
+clust_stats2$corrected.rand
+```
+
+```{r}
+library("fpc")
+
+clust_stats6 <- cluster.stats(d = dist(df.scaled), 
+                             quality, km.res6$cluster)
+clust_stats6$corrected.rand
+```
+#### ARI Plot
+
+```{r}
+ari_values <- c(clust_stats2$corrected.rand, clust_stats3$corrected.rand, clust_stats6$corrected.rand)
+
+ari_results <- data.frame(
+  Clusters = c(2, 3, 6),
+  ARI = ari_values
+)
+
+library(ggplot2)
+
+ggplot(ari_results, aes(x = factor(Clusters), y = ARI, group = 1)) +
+  geom_line(color = "blue", size = 1) +      
+  geom_point(color = "red", size = 3) +      
+  geom_text(aes(label = round(ARI, 3)),      
+            vjust = -0.5, size = 4, color = "black") + 
+  theme_minimal() +
+  labs(title = "Adjusted Rand Index (ARI) for Different Cluster Counts",
+       x = "Number of Clusters",
+       y = "Adjusted Rand Index (ARI)") +
+  theme(axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5))
+```
+
+The plot above for ARI suggest 6 clusters as it similar to number of quality values in our ground truth. 
+
+## 2) Meila's Index (Using the formula)
+
+```{r}
+meilas_index <- function(true_labels, cluster_labels) {
+  N <- length(true_labels)
+  M <- 0
+  
+  # Loop over each pair of points (i, j)
+  for (i in 1:(N-1)) {
+    for (j in (i+1):N) {
+      # Indicator functions for Meila's index
+      I_c1_diff <- ifelse(true_labels[i] != true_labels[j], 1, 0)  # c1(i) != c1(j)
+      I_c2_eq <- ifelse(cluster_labels[i] == cluster_labels[j], 1, 0)  # c2(i) == c2(j)
+      
+      # Update M based on indicator functions
+      M <- M + I_c1_diff * I_c2_eq
+    }
+  }
+  
+  # Normalize by N * (N - 1)
+  mi_score <- M / (N * (N - 1))
+  
+  return(mi_score)
+}
+```
+
+
+### 2 clusters
+
+```{r}
+cluster_labels2<- km.res2$cluster
+meila_index2 <- meilas_index(true_labels, cluster_labels2)
+
+print(meila_index2)
+```
+
+### 3 clusters
+
+```{r}
+cluster_labels3<- km.res3$cluster
+meila_index3 <- meilas_index(true_labels, cluster_labels3)
+
+print(meila_index3)
+```
+### 6 clusters
+```{r}
+cluster_labels6<- km.res6$cluster
+meila_index6 <- meilas_index(true_labels, cluster_labels6)
+
+print(meila_index6)
+```
+
+## Meil's Index Plot
+
+```{r}
+mi_results <- data.frame(
+  Clusters = c(2, 3, 6),
+  MeilaIndex = c(meila_index2, meila_index3, meila_index6)
+)
+
+# Plotting the Meila's Index for different cluster counts as a line plot
+library(ggplot2)
+
+ggplot(mi_results, aes(x = factor(Clusters), y = MeilaIndex, group = 1)) +
+  geom_line(color = "skyblue", size = 1) +  
+  geom_point(color = "blue", size = 3) +    
+  geom_text(aes(label = round(MeilaIndex, 3)),  
+            vjust = -0.5, size = 4, color = "darkred") + 
+  theme_minimal() +
+  labs(title = "Meila's Index for Different Cluster Counts",
+       x = "Number of Clusters",
+       y = "Meila's Index") +
+  theme(axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5))
+```
+The plot above for Meila's Index suggest 6 clusters as it similar to number of quality values in our ground truth.
+
+
+# K medoids
+
+#### Estimating the optimal number of clusters using PAM
+
+1. Elbow method
+```{r}
+library(factoextra)
+library(cluster)
+
+fviz_nbclust(df.scaled, pam, method = "wss") +
+  labs(subtitle = "Elbow Method for Optimal Clusters (PAM)")
+```
+**Interpretation:**
+
+From the plot we see that the elbow is created at 4 so the optimal number of clusters is 4.
+
+
+2. Silhouette method
+```{r}
+library(cluster)
+library(factoextra)
+fviz_nbclust(df.scaled, pam, method = "silhouette")+
+  theme_classic()
+```
+**Interpretation:**
+
+For the silhouette method the optimal number of clusters suggested is 2.
+
+3. Gap Statistic
+```{r}
+set.seed(123)
+fviz_nbclust(df.scaled, pam, method = "gap_stat", nboot = 50) +
+  labs(subtitle = "Gap Statistic Method with PAM")
+```
+**Interpretation:**
+
+From gap statistic we get k=10 optimal clusters.
+
+## Conclusion
+From all the different methods that we saw to apply PAM on our dataset, we can conclude that we do not get accurate results for optimal number of clusters.
+
+Each method gives a different answer. We still tried the optimal k value suggested by Silhouette method (k=2) and Elbow method (k=4). The Gap statistic method suggests k=10 optimal clusters which seems unnecessary and hence we did not apply that.
+
+Instead we applied k=6 clusters (based on ground truth variable) to compare how it will be different from the optimal clusters suggested by above methods.
+
+## Applying PAM for k=4
+```{r}
+library(factoextra)
+pam.res1 = eclust(df.scaled, "pam", k=4, graph=FALSE)
+pam.res1
+```
+
+```{r}
+fviz_cluster(list(data=df.scaled, cluster=pam.res1$clustering),
+             ellipse.type = "norm", geom = "point", stand = FALSE, 
+             palette= "jco", ggtheme = theme_classic())
+```
+
+## PAM at k=2
+```{r}
+pam.res2 = eclust(df.scaled, "pam", k=2, graph=FALSE)
+pam.res2
+```
+
+```{r}
+fviz_cluster(list(data=df.scaled, cluster=pam.res2$clustering),
+             ellipse.type = "norm", geom = "point", stand = FALSE, 
+             palette= "jco", ggtheme = theme_classic())
+```
+
+## PAM at k=6
+```{r}
+pam.res3 = eclust(df.scaled, "pam", k=6, graph=FALSE)
+pam.res3
+```
+
+```{r}
+fviz_cluster(list(data=df.scaled, cluster=pam.res3$clustering),
+             ellipse.type = "norm", geom = "point", stand = FALSE, 
+             palette= "jco", ggtheme = theme_classic())
+```
+
+**Interpretation:**
+
+After applying pam on k=4, 2 and 6 we see that neither of the one is able to form separate clusters. The points are overlapping from one cluster to another.
+
+The reason for this could be due to the ground truth variable (Quality). We see that quality variable has 6 groups and so we have created clusters with 6 groups as well. But wine quality can be determined by various factors and quality variable can be a factor not a ground truth due to which we are not able to form seperate clusters.
+
+We will still proceed with the further classifications to see how it will interpret our dataset.
+
+
+## Internal Classification
+
+Silhouette plot
+```{r}
+fviz_silhouette(pam.res1, palette="jco", ggtheme= theme_classic())
+```
+
+
+```{r}
+fviz_silhouette(pam.res2, palette="jco", ggtheme= theme_classic())
+```
+
+```{r}
+fviz_silhouette(pam.res3, palette="jco", ggtheme= theme_classic())
+```
+
+**interpretation:** 
+Average Silhouette width for each cluster is seen in the silhouette plot.
+k=2 clusters has highest silhouette width of 0.21, where as plot with k=4 clusters has average width of 0.17 and plot with k=6 clusters has lowest average so=ilhouette width of 0.13.
+
+So this suggests we choose k=2 clusters which is having maximum average silhouette width.
+
+
+## Dunn Index using PAM
+```{r}
+library(fpc)
+stats1 = cluster.stats(dist(df.scaled), pam.res1$cluster)
+stats1$dunn
+
+stats2 = cluster.stats(dist(df.scaled), pam.res2$cluster)
+stats2$dunn
+
+stats3 = cluster.stats(dist(df.scaled), pam.res3$cluster)
+stats3$dunn
+```
+**Interpretation:**
+
+The Dunn Index value for each cluster result is below.
+
+for k=4, Dunn Index = 0.02178405
+for k=2, Dunn Index = 0.02435284
+for k=6, Dunn Index = 0.01936127
+
+
+##Computing ClValid
+
+#### Internal Measures
+```{r}
+library(clValid)
+clmethods <- c("pam")
+intern_pam = clValid(df.scaled, nClust =2:6, clMethods= clmethods, validation="internal",maxitems = 1599)
+summary(intern_pam)
+```
+**Interpretation:** 
+
+As per the internal validation measure it suggests that for connectivity and Silhouette 2 clusters perform better where as for Dunn Index 3 clusters perform better.
+
+#### Internal Measure plots
+```{r}
+op = par(no.readonly=TRUE)
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(intern_pam, legend=FALSE)
+plot(nClusters(intern_pam),measures(intern_pam,"Dunn")[,,1],type="n",axes=F,xlab="",ylab="")
+legend("center", clusterMethods(intern_pam),col=1:9, lty=1:9,pch=paste(1:9))
+par(op)
+```
+
+
+#### Stability measures
+```{r}
+stab_pam <- clValid(df.scaled, nClust = c(2,4,6), clMethods = clmethods, validation = "stability",maxitems = 1599)
+optimalScores(stab_pam)
+```
+**Interpretation:**
+
+For APN and ADM measures, PAM with 3 clusters gives the best score and for other measures PAM with 6 clusters has the best score.
+
+#### Stability Measure plots
+```{r}
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(stab_pam,measure = c("APN","AD","ADM","FOM"), legend= FALSE)
+plot(nClusters(stab_pam),measures(stab_pam,"APN")[,,1],type="n",axes=F,xlab="",ylab="")
+legend("center", clusterMethods(stab_pam),col=1:9, lty=1:9,pch=paste(1:9))
+par(op)
+```
+
+
+## External Validation
+```{r}
+table(Rwine$quality, pam.res1$cluster)
+```
+From the ground truth variable table for k=4 clusters we see that the maximum groupings is for quality 5 and 6.
+
+## Corrected Rand Index
+```{r}
+library(fpc)
+quality <- as.numeric(Rwine$quality)
+cs1= cluster.stats(d = dist(df.scaled), quality, pam.res1$cluster)
+ari1= cs1$corrected.rand
+ari1
+
+cs2= cluster.stats(d = dist(df.scaled), quality, pam.res2$cluster)
+ari2= cs2$corrected.rand
+ari2
+
+cs3= cluster.stats(d = dist(df.scaled), quality, pam.res3$cluster)
+ari3= cs3$corrected.rand
+ari3
+```
+**Interpretation:**  The corrected Rand index value shows that agreement between quality type and cluster solution is 0.06454827. It has a range of -0.5 to 1 and value of 0.0645 shows a very low index value.
+
+```{r}
+k_values <- c(2, 4, 6)  
+ari_values <- c(ari1, ari2, ari3)
+
+plot(k_values, ari_values,
+     main = "Adjusted Rand Index for different k",
+     xlab = "Number of Clusters (k)",
+     ylab = "Adjusted Rand Index",
+     xlim = c(1, 7), ylim = c(0, 1),
+     pch = 19, col = "blue")
+lines(k_values, ari_values, col = "red", lwd = 1)
+text(k_values, ari_values, 
+     labels = sprintf("ARI=%.4f", ari_values), 
+     pos = 3, col = "black")
+```
+
+**Interpretation:** We have 2 ARI values that are similar and highest value suggests that k=6 as ground truth variable has 6 types.
+
+
+## Meila's VI
+```{r}
+meilas_index <- function(true_labels, cluster_labels) {
+  N <- length(true_labels)
+  M <- 0
+  for (i in 1:(N-1)) {
+    for (j in (i+1):N) {
+      I_c1_diff <- ifelse(true_labels[i] != true_labels[j], 1, 0)  
+      I_c2_eq <- ifelse(cluster_labels[i] == cluster_labels[j], 1, 0)
+      M <- M + I_c1_diff * I_c2_eq
+    }
+  }
+  mi_score <- M / (N * (N - 1))
+  return(mi_score)
+}
+```
+
+
+```{r}
+cluster_label1 <- pam.res1$cluster
+true_label <- Rwine$quality
+meila_index1 <- meilas_index(true_label, cluster_label1)
+print(meila_index1)
+
+cluster_label2 <- pam.res2$cluster
+meila_index2 <- meilas_index(true_label, cluster_label2)
+print(meila_index2)
+
+cluster_label3 <- pam.res3$cluster
+meila_index3 <- meilas_index(true_label, cluster_label3)
+print(meila_index3)
+```
+**Interpretation:**
+The agreement between the quality types and cluster solution is 0.0837245 using Meila's VI.
+
+```{r}
+k_values <- c(2, 4, 6)  
+vi_values <- c(meila_index1, meila_index2, meila_index3)
+
+plot(k_values, vi_values,
+     main = "Meila's Index for different k",
+     xlab = "Number of Clusters (k)",
+     ylab = "Meila's Index",
+     xlim = c(1, 7), ylim = c(0, 1),
+     pch = 19, col = "blue")
+lines(k_values, vi_values, col = "red", lwd = 1)
+text(k_values, vi_values, 
+     labels = sprintf("ARI=%.4f", vi_values), 
+     pos = 3, col = "black")
+```
+
+**Interpreattion:** 
+
+The lowest Meila's VI value 0.0601, suggests that k=6. This can be due to ground truth variable which has 6 categories.
+
+
+## Swiss Fertility and Socioeconomic Indicators (1888) Data
+
+### Introduction
+
+This report analyzes the `swiss` dataset, which contains standardized fertility measures and socioeconomic indicators for 47 French-speaking provinces of Switzerland in 1888. The dataset illustrates the demographic transition during a period when fertility rates began to decline from previously high levels.
+
+### Dataset Description
+
+The `swiss` dataset contains 47 observations on 6 variables. Here is a summary of the variables:
+
+- **Fertility**: Common standardized fertility measure.
+- **Agriculture**: Percentage of males involved in agriculture as an occupation.
+- **Examination**: Percentage of draftees receiving the highest mark on the army examination.
+- **Education**: Percentage of draftees with education beyond primary school.
+- **Catholic**: Percentage of the population identifying as Catholic.
+- **Infant.Mortality**: Live births who live less than one year (as a percentage).
+
+### Objective
+
+The purpose of clustering is to group provinces into segments with similar socio-economic profiles. This analysis aims to uncover patterns that can inform regional development strategies and help policymakers address regional disparities.
+
+In this study, we will be doing hierarchical clustering on the dataset and compare various linkage methods like Complete, Single, Average, Ward.D, Ward.D2 through various methods.
+
+
+```{r}
+library(ggplot2)
+library(factoextra)
+library(dplyr)
+library(ggrepel)
+```
+
+
+```{r}
+data("swiss")
+df <- swiss
+head(df)
+```
+
+```{r}
+head(df)
+```
+
+```{r}
+# structure of dataset
+str(df)
+```
+
+```{r}
+summary(df)
+```
+```{r}
+skewness_values <- apply(df, 2, skewness)
+print(skewness_values)
+```
+### Insights from the Swiss Dataset
+
+- **Fertility**: The fertility rates across the provinces range from 35 to 92.5, with the median being 70.4. The distribution is fairly symmetrical, indicating that most provinces have moderate fertility rates, though there are some provinces with significantly higher fertility levels.
+
+- **Agriculture**: The percentage of males involved in agriculture varies widely, from 1.2% to 89.7%. While the median is 54.1%, the high variability (IQR of 31.75%) suggests that some regions rely heavily on agriculture, while others are less dependent.
+
+- **Examination**: Examination scores range from 3% to 37%, with a median of 16%. The distribution of this variable is fairly balanced, indicating moderate variation in how draftees perform on the army exam across different provinces.
+
+- **Education**: Education levels beyond primary school range from 1% to 53%, with a median of 8%. The lower median and relatively narrow IQR indicate that most provinces have lower levels of higher education.
+
+- **Catholic**: The percentage of the population identifying as Catholic spans from 2.15% to 100%, with a median of 15.14%. The skew towards higher percentages suggests that some provinces are predominantly Catholic, while others have minimal Catholic populations.
+
+- **Infant Mortality**: Infant mortality rates range from 10.8% to 26.6%, with a median of 20%. This suggests that infant mortality rates are relatively consistent across provinces, with only moderate variation.
+
+#### Key Observations:
+- Significant variation exists in **Agriculture** and **Fertility**, indicating regional differences in economic reliance and family size.
+- **Education** and **Examination** scores have more consistent distributions, pointing to generally lower education levels and moderate army exam performance across provinces.
+- **Catholic** percentages suggest a divide between provinces with high and low Catholic populations.
+- **Infant Mortality** shows relatively little variation, implying uniformity in health outcomes across the regions.
+
+These insights provide an overview of the socio-economic conditions in Swiss provinces during 1888 and can guide further analysis such as clustering or exploring correlations between variables.
+
+### Missing Values Check
+
+```{r}
+missing_values <- sapply(df, function(x) sum(is.na(x)))
+
+# Print the number of missing values for each column
+print(missing_values)
+```
+
+There are no missing values in the dataset.
+
+### Visualizations
+
+#### Histograms
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+# Create histograms for each variable in the df dataset with font size set to 8
+p1 <- ggplot(df, aes(x = Fertility)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Fertility") + 
+  xlab("Fertility") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8),  # Set font size for all text
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+p2 <- ggplot(df, aes(x = Agriculture)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Agriculture") + 
+  xlab("Agriculture") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8), 
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+p3 <- ggplot(df, aes(x = Examination)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Examination") + 
+  xlab("Examination") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8), 
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+p4 <- ggplot(df, aes(x = Education)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Education") + 
+  xlab("Education") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8), 
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+p5 <- ggplot(df, aes(x = Catholic)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Catholic") + 
+  xlab("Catholic") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8), 
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+p6 <- ggplot(df, aes(x = Infant.Mortality)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  ggtitle("Histogram of Infant Mortality") + 
+  xlab("Infant Mortality") + 
+  ylab("Frequency") +
+  theme(text = element_text(size = 8), 
+        axis.title = element_text(size = 8),
+        axis.text = element_text(size = 8),
+        plot.title = element_text(size = 8))
+
+# Combine the plots into a 2x3 grid with font size set to 8
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3, 
+             top = "Histograms for Variables in Swiss Dataset",
+             widths = c(2, 2, 2), heights = c(2, 2))  # Adjust the size of the grid
+```
+## Interpretation of Histograms:
+
+* Fertility: Slightly left-skewed, meaning most provinces have higher fertility rates, with few having lower values.
+* Agriculture: Slightly left-skewed, indicating moderate agricultural participation in most provinces, with a few having very low involvement.
+* Examination: Right-skewed, suggesting most provinces have low percentages of top-performing draftees, with a few excelling significantly.
+* Education: Right-skewed, showing that most provinces have low percentages of draftees with advanced education, while only a few have high percentages.
+* Catholic: Right-skewed, meaning most provinces have low Catholic populations, with a few having very high percentages.
+* Infant Mortality: Approximately symmetric, indicating a balanced distribution of infant mortality rates across provinces with no significant outliers
+
+
+## Correlation Matrix
+```{r}
+# Calculate correlation matrix
+cor_matrix <- cor(df[, c("Fertility", "Agriculture", "Examination", "Education", "Catholic", "Infant.Mortality")])
+cor_matrix <- as.data.frame(as.table(cor_matrix))
+
+ggplot(cor_matrix, aes(Var1, Var2, fill = Freq)) + 
+  geom_tile() + 
+  geom_text(aes(label = round(Freq, 2)), color = "white", size = 4) + 
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limits = c(-1, 1)) + 
+  labs(title = "Correlation Heatmap with Numbers", x = "", y = "") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+#### Insights from the Correlation Matrix
+
+- **Fertility** is negatively correlated with **Examination** and **Education** (-0.65 and -0.66, respectively), indicating that regions with higher fertility rates tend to have lower educational attainment and fewer individuals achieving high marks on the army examination.
+- **Agriculture** is positively correlated with **Fertility** (0.35), suggesting that regions with a higher proportion of males involved in agriculture tend to have slightly higher fertility rates.
+- **Agriculture** shows a strong negative correlation with **Examination** (-0.69) and **Education** (-0.64), indicating that areas more dependent on agriculture tend to have lower examination scores and lower education levels beyond primary school.
+- **Examination** and **Education** are positively correlated (0.70), which is expected since areas with better educational opportunities generally result in higher examination scores.
+- **Catholic** is positively correlated with **Fertility** (0.46), implying that regions with a higher percentage of the population identifying as Catholic tend to have higher fertility rates.
+- **Catholic** shows a moderate negative correlation with **Examination** (-0.57), suggesting that regions with a higher proportion of Catholics tend to have lower examination scores.
+- **Infant Mortality** has a moderate positive correlation with **Fertility** (0.42), indicating that regions with higher fertility rates also tend to have higher infant mortality rates, which could reflect less-developed healthcare systems.
+- **Infant Mortality** has a slight negative correlation with **Agriculture** (-0.06), suggesting that the link between infant mortality and agricultural occupation is not strong.
+
+
+### Assessing Clustering Tendency
+
+#### Hopkins Statistic
+We conducted the Hopkins Statistic test iteratively 10 times, using the mean of the Hopkins value and using 0.5 as the threshold to reject the alternative hypothesis. That is, if H < 0.5, then it is unlikely that D has statistically significant clusters.
+
+```{r}
+library(hopkins)
+hopkins_values <- numeric()
+for(i in 1:10) {
+  hopkins_values[i]<-hopkins(df, m=(nrow(df)-1))
+}
+mean(hopkins_values)
+```
+
+##### Conclusion
+
+The Hopkins statistic for the **Swiss dataset** is **0.9391782**, which indicates a high likelihood of clustering structure in the data. A Hopkins value closer to 1 suggests that the data is not uniformly distributed and contains meaningful clusters. Therefore, performing clustering analysis on this dataset is appropriate and expected to yield insightful groupings based on the socio-economic indicators.
+
+#### Visual methods
+
+Compute the dissimilarity (DM) matrix between the objects in the data set using the Euclidean distance measure.
+
+```{r}
+fviz_dist(dist(df), lab_size = 5)+
+labs(title = "Swiss Data")
+```
+##### Conclusion
+The dissimilarity matrix image confirms that there is a cluster structure in the swiss data set.
+
+### Optimal Clusters
+
+```{r}
+df <- scale(df)
+```
+
+#### Elbow method
+
+```{r}
+library(factoextra)
+```
+
+
+```{r}
+fviz_nbclust(df, kmeans, method = "wss") +
+geom_vline(xintercept = 3, linetype = 2)+
+labs(subtitle = "Elbow method") + geom_text_repel(aes(label = round(..y.., 2)), stat = "summary", method = "wss")
+```
+
+
+#### Silhouette method
+
+```{r}
+fviz_nbclust(df, kmeans, method = "silhouette")+
+labs(subtitle = "Silhouette method")
+```
+
+#### Gap statistic
+
+```{r}
+set.seed(123)
+fviz_nbclust(df, kmeans, nstart = 25, method = "gap_stat", nboot = 50)+
+labs(subtitle = "Gap statistic method")
+```
+
+#### Elbow Method
+The Elbow method suggests a **3-cluster solution** based on the point where the rate of decrease in the within-cluster sum of squares (WCSS) slows significantly.
+
+#### Silhouette Method
+The Silhouette method suggests a **3-cluster solution**, as this number maximizes the average silhouette width, indicating well-separated and compact clusters.
+
+#### Gap Statistic Method
+The Gap Statistic method suggests a **1-cluster solution** by comparing the total within-cluster variation to that of a null reference distribution.
+
+#### Conclusion
+Based on these observations, a **3-cluster solution** is recommended as the optimal choice for the data, as it is supported by both the Elbow and Silhouette methods.
+
+### Hierarchical Clustering
+
+We are going to do different linkage methods to compare the clustering. 
+
+```{r}
+##Computing distance matrix
+res.dist <- dist(df, method = "euclidean")
+```
+
+
+#### Comparing linkage methods using the cluster plot
+
+In this section, we will compare the clusters formed by different linkage methods and find which linkage method clusters distinctively.
+
+```{r}
+res.hc <- hclust(d = res.dist, method = "ward.D2")
+# Cut tree into 3 groups
+grp.hc <- cutree(res.hc, k = 3)
+```
+
+```{r}
+head(grp.hc, n = 4)
+```
+
+```{r}
+# Number of members in each cluster
+table(grp.hc)
+```
+
+```{r}
+# Get the names for the members of cluster 1
+rownames(df)[grp.hc == 1]
+```
+
+```{r}
+## ----cluster-plot, fig.width=6, fig.height=6-----------------------------
+fviz_cluster(list(data = df, cluster = grp.hc),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+
+```{r}
+res.hc1 <- hclust(d = res.dist, method = "ward.D")
+# Cut tree into 3 groups and color by groups
+grp.hc1 <- cutree(res.hc1, k = 3)
+fviz_cluster(list(data = df, cluster = grp.hc1),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+
+```{r}
+# Number of members in each cluster
+table(grp.hc1)
+```
+
+```{r}
+res.hc2 <- hclust(d = res.dist, method = "average")
+# Cut tree into 3 groups
+grp.hc2 <- cutree(res.hc2, k = 3)
+fviz_cluster(list(data = df, cluster = grp.hc2),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+
+```{r}
+# Number of members in each cluster
+table(grp.hc2)
+```
+
+```{r}
+res.hc3 <- hclust(d = res.dist, method = "complete")
+# Cut tree into 3 groups
+grp.hc3 <- cutree(res.hc3, k = 3)
+fviz_cluster(list(data = df, cluster = grp.hc3),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+
+```{r}
+# Number of members in each cluster
+table(grp.hc3)
+```
+
+```{r}
+res.hc4 <- hclust(d = res.dist, method = "single")
+# Cut tree into 3 groups
+grp.hc4 <- cutree(res.hc4, k = 3)
+fviz_cluster(list(data = df, cluster = grp.hc4),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+```{r}
+# Number of members in each cluster
+table(grp.hc4)
+```
+
+#### Results and Interpretations
+
+##### 1. **Ward.D2 Linkage**
+
+The **Ward.D2** method minimizes within-cluster variance, tending to form compact and homogeneous clusters. The cluster sizes are as follows:
+
+- **Cluster 1**: 25 observations
+- **Cluster 2**: 16 observations
+- **Cluster 3**: 6 observations
+
+**Interpretation**: The **Ward.D2** method results in clusters that are compact and homogeneous. The largest cluster (Cluster 1) contains 25 observations, while the smallest cluster (Cluster 3) includes only 6 observations. This could indicate a few outliers or specific patterns in the data.
+
+##### 2. **Ward.D Linkage**
+
+The **Ward.D** method, like **Ward.D2**, also minimizes within-cluster variance, but with a slightly different calculation of variance for merging clusters. The results are as follows:
+
+- **Cluster 1**: 24 observations
+- **Cluster 2**: 16 observations
+- **Cluster 3**: 7 observations
+
+**Interpretation**: Similar to **Ward.D2**, the **Ward.D** method forms relatively balanced clusters. The main difference between the two methods is in the variance calculation, which might lead to slightly different cluster compositions. The clusters remain fairly balanced with just a slight difference in the number of observations per cluster.
+
+##### 3. **Average Linkage**
+
+The **Average** linkage method merges clusters based on the average pairwise distance between clusters. The resulting clusters are:
+
+- **Cluster 1**: 45 observations
+- **Cluster 2**: 1 observation
+- **Cluster 3**: 1 observation
+
+**Interpretation**: The **Average** linkage method tends to create one large cluster that includes the majority of the observations. The small clusters (Cluster 2 and Cluster 3) contain only a single observation each. This suggests that the method is merging distant clusters based on the average distance, leading to isolated data points being treated as separate clusters.
+
+##### 4. **Complete Linkage**
+
+The **Complete** linkage method merges clusters based on the maximum pairwise distance between clusters. The resulting clusters are:
+
+- **Cluster 1**: 36 observations
+- **Cluster 2**: 10 observations
+- **Cluster 3**: 1 observation
+
+**Interpretation**: The **Complete** linkage method produces tighter, more compact clusters by avoiding the merging of highly dissimilar clusters. Cluster 3, consisting of a single observation, suggests that extreme outliers are treated as separate clusters. This method tends to produce smaller and more isolated clusters.
+
+##### 5. **Single Linkage**
+
+The **Single** linkage method merges clusters based on the minimum pairwise distance between clusters. The results are as follows:
+
+- **Cluster 1**: 45 observations
+- **Cluster 2**: 1 observation
+- **Cluster 3**: 1 observation
+
+**Interpretation**: The **Single** linkage method produces one large cluster (Cluster 1) with 45 observations, similar to the **Average** linkage method, and two isolated clusters with only one observation each. This method is sensitive to chaining, where clusters are formed by progressively merging the closest observations, even if they are distant from the rest of the cluster.
+
+#### Cluster Characteristics Across Linkage Methods
+
+- **Ward.D2 and Ward.D**: Both **Ward.D2** and **Ward.D** tend to form relatively balanced clusters with a compact structure. These methods are effective at detecting groups that share similar characteristics and are ideal for minimizing within-cluster variance.
+  
+- **Average and Single**: Both **Average** and **Single** methods tend to create large clusters that merge distant points, often leading to isolated observations being treated as separate clusters. This suggests that these methods are less sensitive to the internal structure of the data and might treat outliers as separate clusters.
+
+- **Complete Linkage**: The **Complete** linkage method produces tighter, smaller clusters by avoiding the merging of highly dissimilar points. This is useful when the goal is to have more distinct clusters, but it can result in isolated data points being treated as individual clusters.
+
+#### Conclusion
+
+Each linkage method affects the structure of the clusters differently. **Ward.D2** and **Ward.D** are effective when the goal is to minimize variance within clusters and form compact, balanced groups. **Average** and **Single** methods merge distant points, leading to large clusters and isolated observations, while **Complete** linkage is suitable for producing smaller, tighter, and more distinct clusters.
+
+
+### Visualizing the cluster tree - Dendrograms
+
+```{r}
+fviz_dend(res.hc, k = 3, # Cut in three groups 
+main = "Dendrogram of Ward.D2",
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE # Add rectangle around groups
+)
+```
+
+```{r}
+fviz_dend(res.hc1, k = 3, # Cut in three groups 
+main = "Dendrogram of Ward.D",
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE # Add rectangle around groups
+) 
+```
+
+```{r}
+fviz_dend(res.hc2, k = 3, # Cut in three groups 
+main = "Dendrogram of Average",
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE # Add rectangle around groups
+)
+```
+
+```{r}
+fviz_dend(res.hc3, k = 3, # Cut in three groups 
+main = "Dendrogram of Complete",
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE # Add rectangle around groups
+)
+```
+
+```{r}
+fviz_dend(res.hc4, k = 3, # Cut in three groups 
+main = "Dendrogram of Single",
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE # Add rectangle around groups
+)
+```
+
+
+### Agnes - Agglomerative Nesting Clustering
+
+```{r}
+library("cluster")
+## # Agglomerative Nesting (Hierarchical Clustering)
+res.agnes <- agnes(x = df, # data matrix
+stand = TRUE, # Standardize the data
+metric = "euclidean", # metric for distance matrix
+method = "ward" # Linkage method
+)
+```
+
+
+
+```{r}
+fviz_dend(res.agnes, cex = 0.4, k = 3, main = "Cluster Dendrogram for AGNES")
+```
+
+
+### Divisive Analysis Clustering
+
+
+```{r}
+# Compute diana()
+library(cluster)
+res.diana <- diana(df, stand = TRUE)
+# Plot the dendrogram
+library(factoextra)
+fviz_dend(main = "Cluster Dendrogram for Divisive Analysis (DIANA)", res.diana, cex = 0.5,
+k = 3, # Cut in four groups
+palette = "jco" # Color palette
+)
+```
+
+### Comparing the linkage methods by verifying the cluster tree 
+
+One way to measure how well the cluster tree generated by the hclust() function reflects your data is to compute the correlation between the cophenetic distances and the original distance data generated by the dist() function. 
+
+If the clustering is valid, the linking of objects in the cluster tree should have a strong correlation with the distances between objects in the original distance matrix.
+
+```{r}
+# List of linkage methods to compare
+linkage_methods <- c("ward.D", "single", "complete", "average", "ward.D2")
+
+# Compute cophenetic correlation coefficients
+cophenetic_results <- data.frame(
+  Method = linkage_methods,
+  Cophenetic_Correlation = sapply(linkage_methods, function(method) {
+    # Perform hierarchical clustering
+    hc <- hclust(dist(df), method = method)
+    # Compute cophenetic correlation
+    cor(dist(df), cophenetic(hc))
+  })
+)
+
+# View results
+print(cophenetic_results)
+
+```
+```{r}
+# Plot cophenetic correlation coefficients
+ggplot(cophenetic_results, aes(x = Method, y = Cophenetic_Correlation)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  labs(
+    title = "Cophenetic Correlation for Different Linkage Methods",
+    x = "Linkage Method",
+    y = "Cophenetic Correlation"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text())  # Rotate x-axis labels
+
+```
+
+#### Insights from the correlation
+
+##### 1. **Ward.D2**: Correlation = **0.598**
+   - Moderate correlation, indicating some distortion in preserving the original pairwise distances.
+
+##### 2. **Ward.D**: Correlation = **0.580**
+   - Slightly lower correlation than Ward.D2, suggesting more distortion in preserving the original distances.
+
+##### 3. **Average**: Correlation = **0.796**
+   - High correlation, indicating good preservation of the pairwise distances.
+
+##### 4. **Complete**: Correlation = **0.625**
+   - Moderate correlation, showing reasonable preservation of the structure but some distortion.
+
+##### 5. **Single**: Correlation = **0.779**
+   - High correlation, indicating good preservation of the original structure, similar to Average linkage.
+
+##### Summary:
+- **High Correlation**: Average (0.80) and Single (0.78) preserve the structure well.
+- **Moderate Correlation**: Complete (0.63) and Ward.D2 (0.60) show moderate preservation.
+- **Lower Correlation**: Ward.D (0.58) introduces more distortion compared to other methods.
+- Based on these insights, we decided to move ahead with the **Average linkage** method as it offers the best balance between preserving pairwise distances and generating meaningful clusters.
+
+
+### Average linkage 
+
+```{r}
+# Cut tree into 3 groups
+grp <- cutree(res.hc2, k = 3)
+head(grp, n = 3)
+```
+
+```{r}
+# Number of members in each cluster
+table(grp)
+```
+
+```{r}
+# Get the names for the members of cluster 1
+rownames(df)[grp == 1]
+```
+
+```{r}
+## ----cluster-plot, fig.width=6, fig.height=6-----------------------------
+fviz_cluster(list(data = df, cluster = grp),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800"),
+ellipse.type = "convex", # Concentration ellipse
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+```
+
+### Comparison of the linkage methods using ***their dendrograms***
+
+***Note that, conclusions about the proximity of two objects can be drawn only based on the height where branches containing those two objects first are fused. We cannot use the proximity of two objects along the horizontal axis as a criteria of their similarity.***
+
+### Comparing and Visualizing Dendrograms
+
+```{r}
+library(dendextend)
+
+# Compute 2 hierarchical clusterings
+hc1 <- hclust(res.dist, method = "average")
+hc2 <- hclust(res.dist, method = "ward.D")
+
+# Create two dendrograms
+dend1 <- as.dendrogram (hc1)
+dend2 <- as.dendrogram (hc2)
+
+# Create a list to hold dendrograms
+dend_list <- dendlist(dend1, dend2)
+```
+
+
+```{r}
+# Compute 2 hierarchical clusterings
+hcco <- hclust(res.dist, method = "complete")
+hcsin <- hclust(res.dist, method = "single")
+
+# Create two dendrograms
+dendco <- as.dendrogram (hcco)
+dendsin <- as.dendrogram (hcsin)
+
+# Create a list to hold dendrograms *complte and single
+dend_listcs <- dendlist(dendco, dendsin)
+```
+
+
+```{r}
+tanglegram(dendco, dendsin,
+highlight_distinct_edges = FALSE, # Turn-off dashed lines
+common_subtrees_color_lines = FALSE, # Turn-off line colors
+common_subtrees_color_branches = TRUE, # Color common branches
+main = paste("entanglement of single vs complete =", round(entanglement(dend_listcs), 2))
+)
+```
+
+
+```{r}
+tanglegram(dend1, dend2,
+highlight_distinct_edges = FALSE, # Turn-off dashed lines
+common_subtrees_color_lines = FALSE, # Turn-off line colors
+common_subtrees_color_branches = TRUE, # Color common branches
+main = paste("entanglement of average vs ward.D=", round(entanglement(dend_list), 2))
+)
+```
+
+
+```{r}
+# Create a list to hold dendrograms *complte and average
+dend_listca <- dendlist(dendco, dend1)
+tanglegram(dendco, dend1,
+highlight_distinct_edges = FALSE, # Turn-off dashed lines
+common_subtrees_color_lines = FALSE, # Turn-off line colors
+common_subtrees_color_branches = TRUE, # Color common branches
+main = paste("entanglement of average vs complete=", round(entanglement(dend_listca), 2))
+)
+```
+
+```{r}
+dend_listsa <- dendlist(dendsin, dend1)
+tanglegram(dendsin, dend1,
+highlight_distinct_edges = FALSE, # Turn-off dashed lines
+common_subtrees_color_lines = FALSE, # Turn-off line colors
+common_subtrees_color_branches = TRUE, # Color common branches
+main = paste("entanglement of average vs single=", round(entanglement(dend_listsa), 2))
+)
+```
+
+
+The quality of the alignment of the two trees can be measured using the function entanglement(). Entanglement is a measure between 1 (full entanglement) and 0 (no
+entanglement). 
+
+A lower entanglement coefficient corresponds to a good alignment.
+
+**Average and Ward.D has the lowest entanglement,  making it most similar to one other.**
+
+### Correlation matrix between a list of dendrogams
+
+The function cor.dendlist() is used to compute “Baker” or “Cophenetic” correlation matrix between a list of trees. The value can range between -1 to 1. With near 0 values meaning that the two trees are not statistically similar.
+
+```{r}
+# Cophenetic correlation matrix
+cor.dendlist(dend_list, method = "cophenetic")
+```
+
+```{r}
+# Baker correlation matrix
+cor.dendlist(dend_list, method = "baker")
+```
+
+```{r}
+# Cophenetic correlation coefficient
+cor_cophenetic(dend1, dend2)
+```
+
+```{r}
+# Baker correlation coefficient
+cor_bakers_gamma(dend1, dend2)
+```
+
+It’s also possible to compare simultaneously multiple dendrograms. A chaining operator %>% is used to run multiple function at the same time. It’s useful for simplifying the code:
+
+
+```{r}
+# Create multiple dendrograms by chaining
+dend1 <- df %>% dist %>% hclust("complete") %>% as.dendrogram
+dend2 <- df %>% dist %>% hclust("single") %>% as.dendrogram
+dend3 <- df %>% dist %>% hclust("average") %>% as.dendrogram
+dend4 <- df %>% dist %>% hclust("ward.D2") %>% as.dendrogram
+dend5 <- df %>% dist %>% hclust("ward.D") %>% as.dendrogram
+# Compute correlation matrix
+dend_list <- dendlist("Complete" = dend1, "Single" = dend2,
+                      "Average" = dend3, "Ward.D2" = dend4, "Ward.D" = dend5)
+cors <- cor.dendlist(dend_list)
+# Print correlation matrix
+round(cors, 2)
+```
+
+
+```{r}
+# Visualize the correlation matrix using corrplot package
+library(corrplot)
+corrplot(cors, "pie", "lower", tl.col = "navyblue", tl.srt = 0, title = "Pearson Correlation between the dendrograms",mar = c(0, 0, 2,0), tl.cex = 0.8)
+```
+
+#### Clustering Methods Correlation Insights - Pearson
+
+The graph presents the pairwise correlation between different clustering methods. Here's a summary of the key findings:
+
+1. **Ward.D vs Ward.D2 (0.98)**: These methods produce nearly identical clustering results, showing high similarity.
+2. **Single vs Average (0.91)**: These methods are closely related, producing similar cluster compositions, though they use different approaches (Single based on minimum distance, Average based on the average distance).
+3. **Average vs Complete (0.57)**: Moderate correlation, suggesting some similarity in clustering, but noticeable differences in how they treat distant points.
+4. **Complete vs Single (0.44)**: Low correlation, indicating these methods produce very different clusterings. Complete forms tighter clusters, while Single merges distant points.
+5. **Ward.D vs Average (0.63)**: Moderate correlation, showing some overlap, but differences in how clusters are formed based on variance minimization and distance calculation.
+
+##### Conclusion:
+- **Ward.D** and **Ward.D2** are nearly identical.
+- **Single** and **Average** are highly similar.
+- **Complete** and **Single** show significant differences in their clustering approaches.
+
+
+```{r}
+cors_bakers <- cor.dendlist(dend_list, method = "baker")
+# Print correlation matrix
+round(cors_bakers, 2)
+```
+
+```{r}
+library(corrplot)
+corrplot(cors_bakers, "pie", "lower", tl.col = "navyblue", tl.srt = 0, title = "Bakers-Gamma Correlation between the dendrograms",mar = c(0, 0, 2,0), tl.cex = 0.8)
+```
+
+
+#### Clustering Methods Correlation Insights -  Baker’s Gamma
+
+1. **Higher Baker’s Gamma Correlations Across All Methods:**
+- Baker’s Gamma values are generally higher than Pearson correlations, showing that the clustering methods maintain a higher agreement in their ranked pairwise relationships compared to their direct distance mappings.
+2. **Complete vs. Average Linkage:**
+- Consistent with the Pearson correlation, Complete and Average linkage methods maintain a high Baker’s Gamma correlation, further confirming their similarity.
+3. **Improved Single Linkage Correlation:**
+- Baker’s Gamma correlation for Single linkage improves compared to Pearson's, indicating that while Single linkage has a distinct approach, it still maintains some consistency in the ranked clustering relationships.
+4. **Ward Methods:**
+- The correlation between Ward.D and Ward.D2 is near-perfect in both Pearson and Baker’s Gamma, reinforcing their equivalency for most practical applications.
+
+
+#### Visualizing Dendrograms - Circular
+
+```{r}
+fviz_dend(res.hc2, cex = 0.5, k = 3,
+k_colors = "jco", type = "circular")
+```
+
+
+```{r}
+require("igraph")
+fviz_dend(res.hc2, k = 3, k_colors = "jco",
+type = "phylogenic", repel = TRUE)
+```
+
+
+```{r}
+require("igraph")
+fviz_dend(res.hc2, k = 3, # Cut in three groups
+k_colors = "jco",
+type = "phylogenic", repel = TRUE,
+phylo_layout = "layout.gem")
+```
+
+##### Plotting a sub-tree of dendrograms
+
+```{r}
+# Create a plot of the whole dendrogram,
+# and extract the dendrogram data
+dend_plot <- fviz_dend(res.hc2, k = 3, # Cut in three groups
+cex = 0.5, # label size
+k_colors = "jco"
+)
+dend_data <- attr(dend_plot, "dendrogram") # Extract dendrogram data
+```
+
+```{r}
+# Cut the dendrogram at height h = 10
+dend_cuts <- cut(dend_data, h = 10)
+# Visualize the truncated version containing
+# two branches
+fviz_dend(dend_cuts$upper)
+```
+
+```{r}
+# Plot the whole dendrogram
+print(dend_plot)
+```
+```{r}
+# Plot subtree 1
+fviz_dend(dend_cuts$lower[[1]], main = "Subtree 1")
+```
+
+```{r}
+# Plot subtree 2
+fviz_dend(dend_cuts$lower[[2]], main = "Subtree 2")
+```
+
+```{r}
+# Plot subtree 1
+fviz_dend(dend_cuts$lower[[1]], type = "circular", main = "Subtree 1")
+```
+
+### Cluster Validation Statistics
+
+```{r}
+# Hierarchical clustering
+hc.res <- eclust(df, "hclust", k = 3, hc_metric = "euclidean",
+hc_method = "average", graph = FALSE)
+# Visualize dendrograms
+fviz_dend(hc.res, show_labels = FALSE,
+palette = "jco", as.ggplot = TRUE)
+```
+
+### Cluster Validation
+Silhouette coefficient (Si) measures how similar an object i is to the the other objects in its own cluster versus those in the neighbor cluster. Si values range from 1 to - 1:
+
+• A value of Si close to 1 indicates that the object is well clustered. In the other words, the object i is similar to the other objects in its group.
+
+• A value of Si close to -1 indicates that the object is poorly clustered, and that assignment to some other cluster would probably improve the overall results.
+
+```{r}
+fviz_silhouette(hc.res, palette = "jco",
+ggtheme = theme_classic())
+```
+Silhouette information can be extracted as follow:
+```{r}
+## # Silhouette information
+silinfo <- hc.res$silinfo
+names(silinfo)
+```
+
+```{r}
+## # Silhouette widths of each observation
+head(silinfo$widths[, 1:3], 10)
+```
+
+```{r}
+## # Average silhouette width of each cluster
+silinfo$clus.avg.widths
+```
+
+```{r}
+## # The total average (mean of all individual silhouette widths)
+silinfo$avg.width
+```
+
+```{r}
+## # The size of each clusters
+hc.res$size
+```
+
+It can be seen that several samples, in cluster 1,2,and 3, have a negative silhouette coefficient. This means that they are not in the right cluster. We can find the name of these samples and determine the clusters they are closer (neighbor cluster), as follow:
+
+```{r}
+# Silhouette width of observation
+sil <- hc.res$silinfo$widths[, 1:3]
+# Objects with negative silhouette
+neg_sil_index <- which(sil[, 'sil_width'] < 0)
+sil[neg_sil_index, , drop = FALSE]
+```
+
+There are three negative silhouette width, which means these cities are placed in the wrong cluster.
+
+### Computing Dunn index and other cluster validation statistics
+
+```{r}
+library(fpc)
+# Statistics for HC clusters
+hc_stats <- cluster.stats(dist(df), hc.res$cluster)
+# Dun index
+hc_stats$dunn
+```
+
+### Internal Validation
+
+```{r}
+# Load necessary libraries
+library(clValid)
+
+# Perform clustering validation with connectivity metric
+connectivity_results <- clValid(df, nClust = 2:10, 
+                                 clMethods = "hierarchical", 
+                                 validation = "internal", method = "average")
+
+# Extract connectivity scores
+summary(connectivity_results)
+```
+
+
+```{r message=FALSE}
+op = par(no.readonly=TRUE)
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(connectivity_results, legend = FALSE)
+plot(nClusters(connectivity_results),measures(connectivity_results,"Dunn")[,,1],type="n",axes=F,xlab="",ylab="")
+legend("center", clusterMethods(connectivity_results),col=1:9, lty=1:9,pch=paste(1:9))
+par(op)
+```
+
+
+**Connectivity:**
+
+- Connectivity measures the compactness of clusters, where lower values indicate better clustering quality.
+- The connectivity value increases steadily as the number of clusters increases (from 5.69 for 2 clusters to 42.01 for 10 clusters).
+- This suggests that larger cluster sizes may lead to reduced compactness, implying that fewer clusters (e.g., 2 or 3) provide more cohesive results.
+
+**Dunn Index:**
+
+- The Dunn index evaluates cluster separation and compactness, where higher values indicate better clustering.
+- The Dunn index is highest at 2 clusters (0.4248) and decreases with increasing clusters, reaching its lowest value at 9 and 10 clusters (0.2415).
+- This indicates that having 2 clusters results in the best balance between cluster separation and compactness.
+
+**Silhouette Width:**
+
+- The silhouette width measures how similar an object is to its cluster compared to other clusters, with higher values indicating better clustering.
+- The silhouette value is highest at 2 clusters (0.4534) and steadily decreases as the number of clusters increases (0.2511 for 10 clusters).
+- This supports the idea that fewer clusters, such as 2 or 3, offer better-defined clustering.
+
+
+### Stability 
+
+```{r}
+# Load necessary libraries
+library(clValid)
+
+# Perform clustering validation with connectivity metric
+stability_results <- clValid(df, nClust = 2:10, 
+                                 clMethods = "hierarchical", 
+                                 validation = "stability", method = "average")
+
+# Extract connectivity scores
+optimalScores(stability_results)
+```
+
+
+```{r}
+par(mfrow=c(2,2),mar=c(4,4,3,1))
+plot(stability_results,measure = c("APN","AD","ADM","FOM"), legend=FALSE)
+plot(nClusters(stability_results),measures(stability_results,"APN")[,,1],type="n",axes=F,xlab="",ylab="")
+legend("center", clusterMethods(stability_results),col=1:9, lty=1:9,pch=paste(1:9))
+par(op)
+```
+
+**1. APN (Average Proportion of Non-overlap):**
+
+- Lower values indicate more stable clusters.
+- The APN score is lowest for 2 clusters (0.0106), indicating that 2 clusters yield the most stable solution.
+
+**2. AD (Average Distance Between Clusters):**
+
+- Higher values suggest better separation between clusters.
+- The AD score is highest for 10 clusters (1.4767), but this is misleading as smaller clusters tend to artificially increase inter-cluster distances.
+
+**3. ADM (Average Distance Between Members):**
+
+- Lower values indicate that objects within a cluster are more tightly grouped.
+- The ADM score is lowest for 2 clusters (0.125), reinforcing the compactness of 2 clusters.
+
+**4. FOM (Figure of Merit):**
+
+- Lower values indicate better clustering quality.
+- The FOM score is lowest for 2 clusters (0.6882), again supporting the conclusion that 2 clusters provide the best results.
+
+
+##### Results - 
+
+While exploratory analysis and clustering metrics (Elbow, Silhouette, Gap) suggested 3 clusters, internal validation metrics (Dunn, Connectivity, Silhouette) and stability analysis supported 2 clusters as more robust.
+
+- If compactness is more important (WSS), go with 3 clusters.
+- If separation is more critical (Dunn index, silhouette width), go with 2 clusters.
+
+
+# Research Component
+
+# Anomaly Detection
+
+Anomaly detection refers to the process of identifying data points, transactions, or patterns that deviate from the standard norm.  
+With financial transactions happening at breakneck speed these days, faster anomaly detection and resolution in transaction data become critical in safeguarding the integrity of financial systems.
+
+# DBSCAN Applications
+
+**DBSCAN (Density-Based Spatial Clustering of Applications with Noise)** is widely used in anomaly detection in finance by identifying outliers or unusual transactions that deviate from typical patterns. Here's how DBSCAN is applied:
+
+## Fraud Detection
+DBSCAN clusters normal transactions based on features like transaction amounts, time, and location. Transactions that do not belong to any cluster (outliers) are flagged as potentially fraudulent.
+
+## Market Anomalies
+DBSCAN can detect unusual stock price movements or abnormal trading volumes. Clusters represent typical market behaviors, while points outside these clusters are considered anomalous, signaling potential market manipulation or unexpected events.
+
+## Credit Risk Assessment
+DBSCAN can be used to identify unusual customer behaviors, such as unexpected loan repayment patterns or account activities, which may indicate credit risk or potential fraud.
+
+# Anomaly Detection Using K-Means
+
+K-Means is another popular clustering algorithm used in anomaly detection in finance. Here's how K-Means can be applied:
+
+## Fraud Detection
+- K-Means can be used to cluster normal transactions based on attributes like transaction amount, time, and user behavior.
+- Transactions that are far from the cluster centers (centroids) are considered outliers and flagged as potentially fraudulent.
+
+## Market Anomalies
+- In stock market data, K-Means can be applied to cluster stocks based on price movements, volatility, and trading volumes.
+- Stocks or assets that significantly deviate from the centroids of the clusters can be flagged as anomalous, indicating potential market manipulation or unusual events.
+
+## Credit Risk Assessment
+- K-Means helps in grouping customers based on features like loan repayment history, credit scores, and other financial behaviors.
+- Customers whose behavior significantly differs from the typical groups (clusters) may be identified as high-risk or exhibiting irregular patterns.
+
+## Customer Segmentation in Retail
+- By clustering customers based on purchasing behavior, K-Means can identify those with abnormal spending patterns.
+- These anomalies can potentially point to fraudulent activity or shifts in customer preferences.
+
+
+
+#### Applications in Cybersecurity
+
+With the growing complexity and volume of network traffic, faster anomaly detection and resolution have become critical in safeguarding the integrity of cybersecurity systems.
+
+# Anomaly Detection Using DBSCAN in Cybersecurity
+
+**DBSCAN (Density-Based Spatial Clustering of Applications with Noise)** is an effective clustering algorithm for detecting anomalies in cybersecurity. It is particularly useful in identifying outliers in network traffic and system activities. Here's how DBSCAN can be applied:
+
+## Intrusion Detection
+- DBSCAN can cluster network activities based on features such as packet size, connection time, and protocol type.
+- Activities that do not belong to any cluster (outliers) are flagged as potential intrusions, such as unauthorized access attempts.
+
+## DDoS Attack Detection
+- By analyzing traffic volume, request rates, and response times, DBSCAN identifies dense clusters of normal network traffic.
+- Excessive or irregular traffic patterns that fall outside these clusters can indicate Distributed Denial of Service (DDoS) attacks.
+
+## Data Exfiltration
+- DBSCAN can be used to cluster network sessions based on data transfer size and duration.
+- Outliers, representing unusually high data transfer volumes or abnormal durations, may signal unauthorized data exfiltration attempts.
+
+## Malware Communication Detection
+- Communication patterns between systems are clustered using DBSCAN, based on attributes like destination IP, port numbers, and traffic intervals.
+- Anomalous communication patterns outside typical clusters are flagged, potentially identifying malware communicating with command-and-control (C2) servers.
+
+# Anomaly Detection Using K-Means in Cybersecurity
+
+K-Means is a popular clustering algorithm widely used in cybersecurity to detect anomalies that might indicate malicious activity. Here's how K-Means can be applied:
+
+## Intrusion Detection
+- K-Means can cluster network activities based on attributes like packet size, response time, and connection duration.
+- Unusual network sessions or activities that are far from the cluster centroids are flagged as potential intrusions.
+
+## DDoS Attack Detection
+- By analyzing the number of requests, session durations, and traffic volume, K-Means can group normal network traffic.
+- Clusters with excessively high traffic or unusually short durations may indicate Distributed Denial of Service (DDoS) attacks.
+
+## Data Exfiltration
+- K-Means can cluster sessions based on data transfer volume and session duration.
+- Anomalous sessions with large data transfers or unusually long durations can signal potential data exfiltration attempts.
+
+## Malware Communication Detection
+- Network communication patterns can be clustered using attributes like destination IP addresses, port usage, and packet intervals.
+- Outliers in these clusters often represent unauthorized or malicious communication channels, such as malware communicating with command-and-control (C2) servers.
+
+
+##### Example code - Anomaly Detection in transctions dataset using DBSCAN
+
+```{r}
+library(dbscan)
+library(ggplot2)
+
+set.seed(123)
+
+# 1. Synthetic dataset for fraud detection (transactions)
+transactions <- data.frame(
+  amount = c(runif(100, 50, 500), runif(5, 5000, 10000)),  # normal & fraudulent transaction amounts
+  time = c(runif(100, 1, 24), runif(5, 25, 48)),             # normal & fraudulent transaction times (hours)
+  location = c(runif(100, 1, 10), runif(5, 15, 20))          # normal & fraudulent transaction locations
+)
+
+# 2. Compute the k-distance for each point (with minPts = 5)
+kdist <- dbscan::kNNdist(transactions, k = 5)
+
+# 3. Sort the k-distances
+sorted_kdist <- sort(kdist)
+
+# 4. Print the sorted k-distances
+print("Sorted k-distances:")
+print(sorted_kdist)
+
+# 5. Calculate the differences between consecutive k-distances
+kdist_diff <- diff(sorted_kdist)
+
+# 6. Find the index of the largest difference (elbow)
+elbow_index <- which.max(kdist_diff)
+
+# 7. Suggested eps value (just before the sharp rise)
+suggested_eps <- sorted_kdist[elbow_index]
+
+# 8. Print the suggested eps value
+cat("Suggested eps value (based on k-distance plot):", suggested_eps, "\n")
+
+# 9. Plot the k-distance
+plot(sorted_kdist, type = "l", main = "k-Distance Plot", xlab = "Points Sorted by Distance", ylab = "k-distance")
+```
+
+```{r}
+library(dbscan)
+library(ggplot2)
+set.seed(123)
+
+# Apply DBSCAN to the transactions dataset with adjusted parameters
+dbscan_transactions <- dbscan(transactions, eps = 42.5, minPts = 5) 
+transactions$anomaly <- dbscan_transactions$cluster == 0  # Mark outliers as anomalies
+
+#Visualize Results - Transactions Dataset
+ggplot(transactions, aes(x = amount, y = time, color = factor(anomaly))) +
+  geom_point() +
+  labs(title = "Fraud Detection: DBSCAN", x = "Transaction Amount", y = "Transaction Time") +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_minimal()
+```
+
+```{r}
+library(dbscan)
+library(ggplot2)
+
+set.seed(123)
+
+# 1. Synthetic dataset for cybersecurity anomaly detection
+cyber_data <- data.frame(
+  packets = c(runif(100, 100, 1000), runif(5, 5000, 10000)),  # normal & abnormal packet counts
+  duration = c(runif(100, 1, 60), runif(5, 70, 120)),         # normal & abnormal session durations (seconds)
+  requests = c(runif(100, 10, 100), runif(5, 200, 500))       # normal & abnormal request rates
+)
+
+# 2. Compute the k-distance for each point (with minPts = 5)
+kdist <- dbscan::kNNdist(cyber_data, k = 5)
+
+# 3. Sort the k-distances
+sorted_kdist <- sort(kdist)
+
+# 4. Print the sorted k-distances
+print("Sorted k-distances:")
+print(sorted_kdist)
+
+# 5. Calculate the differences between consecutive k-distances
+kdist_diff <- diff(sorted_kdist)
+
+# 6. Find the index of the largest difference (elbow)
+elbow_index <- which.max(kdist_diff)
+
+# 7. Suggested eps value (just before the sharp rise)
+suggested_eps <- sorted_kdist[elbow_index]
+
+# 8. Print the suggested eps value
+cat("Suggested eps value (based on k-distance plot):", suggested_eps, "\n")
+
+# 9. Plot the k-distance
+plot(sorted_kdist, type = "l", main = "k-Distance Plot", 
+     xlab = "Points Sorted by Distance", 
+     ylab = "k-distance")
+
+# 10. Apply DBSCAN using the suggested eps value
+dbscan_model <- dbscan(cyber_data, eps = suggested_eps, minPts = 5)
+cyber_data$cluster <- dbscan_model$cluster
+
+# 11. Mark anomalies (outliers have cluster 0)
+cyber_data$anomaly <- dbscan_model$cluster == 0
+
+# 12. Visualize the results
+ggplot(cyber_data, aes(x = packets, y = duration, color = factor(anomaly))) +
+  geom_point(size = 3) +
+  labs(title = "DBSCAN: Cybersecurity Anomaly Detection", 
+       x = "Packets", 
+       y = "Session Duration (seconds)", 
+       color = "Anomaly") +
+  scale_color_manual(values = c("blue", "red"), labels = c("Normal", "Anomalous")) +
+  theme_minimal()
+```
+

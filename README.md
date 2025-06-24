@@ -1,11 +1,5 @@
 # Clustering Analysis Project
 
-## Team Members
-- Teshani Jayasinghe  
-- Rachel Mendonsa  
-- Komalpreet  
-- Shwetha Vedavinayagam  
-
 ---
 
 ## Introduction
